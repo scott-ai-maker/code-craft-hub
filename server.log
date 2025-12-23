@@ -1,0 +1,14 @@
+MongoDB connected successfully.
+Server running on port 5000
+Registration attempt: {
+  username: 'john_doe',
+  email: 'johndoe@example.com',
+  password: 'Password123!'
+}
+Hashed password: $2b$10$d01.1Inr4C7IfVr8FVAHbOr9pLCSywRL0LY5nhJ2uRR7GffloVVRW
+User saved successfully
+Login attempt for: johndoe@example.com
+Password received: Password123!
+User found: true
+Stored hash: $2b$10$E4B8Pm9Bb49b9hrgNKlnz.p5TxSF4kxX.Hai9Hd8TfMIRTSG7EdZ2
+Password match: false
