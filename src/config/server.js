@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const bodyParser = require('body-parser');
 const rateLimit = require('express-rate-limit');
 
 // General API rate limiter
@@ -57,7 +56,10 @@ const initServer = () => {
     };
     
     app.use(cors(corsOptions));
-    app.use(bodyParser.json());
+    
+    // Body parser with size limits to prevent DOS attacks
+    app.use(express.json({ limit: '10kb' }));
+    app.use(express.urlencoded({ extended: true, limit: '10kb' }));
     
     return app;
 };
