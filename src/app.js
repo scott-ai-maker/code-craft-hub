@@ -6,6 +6,7 @@ const initServer = require('./config/server');
 const userRoutes = require('./routes/userRoutes');
 const errorHandler = require('./utils/errorHandler');
 const validateEnv = require('./utils/validateEnv');
+const { specs, swaggerUi } = require('./config/swagger');
 
 let server;
 
@@ -19,7 +20,34 @@ const startServer = async () => {
         // Connect to database before starting server
         await connectDB();
         
-        // Health check endpoint
+        /**
+         * @swagger
+         * /health:
+         *   get:
+         *     tags: [Health]
+         *     summary: Health check endpoint
+         *     description: Returns the health status of the server
+         *     responses:
+         *       200:
+         *         description: Server is healthy
+         *         content:
+         *           application/json:
+         *             schema:
+         *               type: object
+         *               properties:
+         *                 success:
+         *                   type: boolean
+         *                   example: true
+         *                 message:
+         *                   type: string
+         *                   example: Server is healthy
+         *                 timestamp:
+         *                   type: string
+         *                   format: date-time
+         *                 uptime:
+         *                   type: number
+         *                   description: Server uptime in seconds
+         */
         app.get('/health', (req, res) => {
             res.status(200).json({
                 success: true,
@@ -28,6 +56,12 @@ const startServer = async () => {
                 uptime: process.uptime()
             });
         });
+        
+        // API Documentation
+        app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
+            customCss: '.swagger-ui .topbar { display: none }',
+            customSiteTitle: 'Code Craft Hub API Docs'
+        }));
         
         app.use('/api/users', userRoutes);
         app.use(errorHandler);
