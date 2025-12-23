@@ -1,5 +1,7 @@
 # Code Review - Issues & Recommendations
 
+> Added integration tests (in-memory Mongo) covering register/login/profile/password/delete flows under src/tests/integration.
+
 ## 🔴 Critical Security Issues (Fix Immediately)
 
 ### 1. Add JWT_SECRET to .env

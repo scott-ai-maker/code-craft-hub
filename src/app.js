@@ -10,6 +10,13 @@ const { specs, swaggerUi } = require('./config/swagger');
 
 let server;
 
+// Exported for testing to allow graceful shutdown
+const stopServer = async () => {
+    if (!server) return;
+    await new Promise(resolve => server.close(resolve));
+    await mongoose.connection.close();
+};
+
 const startServer = async () => {
     try {
         // Validate environment variables before starting
@@ -104,3 +111,5 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
 startServer();
+
+module.exports = { startServer, stopServer };
