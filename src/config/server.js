@@ -1,3 +1,15 @@
+/**
+ * Express Server Configuration
+ * 
+ * Initializes Express application with all middleware for:
+ * - Security (Helmet, rate limiting, CORS)
+ * - Logging (Morgan)
+ * - Data sanitization (NoSQL injection, XSS)
+ * - Request parsing
+ * 
+ * @module config/server
+ */
+
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
@@ -7,7 +19,16 @@ const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss');
 const logger = require('../utils/logger');
 
-// General API rate limiter
+/**
+ * General API Rate Limiter
+ * 
+ * Limits all API requests to prevent abuse:
+ * - Window: 15 minutes
+ * - Limit: 100 requests per IP
+ * - Disabled during tests
+ * 
+ * @type {Function}
+ */
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // Limit each IP to 100 requests per windowMs
@@ -20,7 +41,17 @@ const apiLimiter = rateLimit({
     skip: () => process.env.NODE_ENV === 'test',
 });
 
-// Strict rate limiter for auth endpoints
+/**
+ * Strict Authentication Rate Limiter
+ * 
+ * Protects auth endpoints (login, register) from brute force attacks:
+ * - Window: 15 minutes
+ * - Limit: 5 requests per IP
+ * - Counts both successful and failed attempts
+ * - Disabled during tests
+ * 
+ * @type {Function}
+ */
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 5, // Limit each IP to 5 requests per windowMs
@@ -34,10 +65,37 @@ const authLimiter = rateLimit({
     skip: () => process.env.NODE_ENV === 'test',
 });
 
+/**
+ * Initialize Express application with all security and utility middleware
+ * 
+ * Middleware order (important for functionality):
+ * 1. Helmet - Security headers
+ * 2. Morgan - HTTP request logging
+ * 3. Rate limiting - Protection against abuse
+ * 4. CORS - Cross-origin resource sharing
+ * 5. NoSQL sanitization - Protection against injection attacks
+ * 6. XSS sanitization - Protection against cross-site scripting
+ * 7. Body parsers - JSON and URL-encoded request parsing
+ * 
+ * @returns {Express.Application} Configured Express application
+ * 
+ * @example
+ * const app = initServer();
+ * app.use('/api/users', userRoutes);
+ * app.listen(3000);
+ */
 const initServer = () => {
     const app = express();
     
-    // Security headers with Helmet
+    /**
+     * Security Headers with Helmet
+     * 
+     * Sets HTTP security headers:
+     * - Content Security Policy (CSP) - prevent XSS
+     * - HTTP Strict Transport Security (HSTS) - enforce HTTPS
+     * - X-Frame-Options - prevent clickjacking
+     * - X-Content-Type-Options - prevent MIME sniffing
+     */
     app.use(helmet({
         contentSecurityPolicy: {
             directives: {
@@ -52,7 +110,12 @@ const initServer = () => {
         }
     }));
     
-    // Request logging
+    /**
+     * Request Logging with Morgan
+     * 
+     * Production: Logs to Winston logger for persistence
+     * Development: Logs to console with color coding
+     */
     if (process.env.NODE_ENV === 'production') {
         // Production: Log to winston
         app.use(morgan('combined', {
@@ -65,10 +128,19 @@ const initServer = () => {
         app.use(morgan('dev'));
     }
     
-    // Apply general rate limiter to all API routes
+    /**
+     * Apply general rate limiter to all API routes
+     * Protects API from high volume requests
+     */
     app.use('/api/', apiLimiter);
     
-    // Configure CORS with specific origins
+    /**
+     * CORS Configuration
+     * 
+     * Allows requests from specified origins with credentials.
+     * Configurable via ALLOWED_ORIGINS environment variable.
+     * Default: http://localhost:3000
+     */
     const allowedOrigins = process.env.ALLOWED_ORIGINS 
         ? process.env.ALLOWED_ORIGINS.split(',')
         : ['http://localhost:3000'];
@@ -92,7 +164,12 @@ const initServer = () => {
     
     app.use(cors(corsOptions));
     
-    // Data sanitization against NoSQL query injection
+    /**
+     * NoSQL Injection Prevention
+     * 
+     * Sanitizes data to prevent MongoDB injection attacks
+     * by removing or replacing '$' and '.' characters in keys.
+     */
     app.use(mongoSanitize({
         replaceWith: '_',
         onSanitize: ({ req, key }) => {
@@ -100,7 +177,12 @@ const initServer = () => {
         },
     }));
     
-    // XSS sanitization middleware
+    /**
+     * XSS (Cross-Site Scripting) Prevention
+     * 
+     * Sanitizes all user input (body, query, params) to remove
+     * potential malicious scripts and HTML tags.
+     */
     app.use((req, res, next) => {
         // Sanitize request body
         if (req.body) {
@@ -132,7 +214,13 @@ const initServer = () => {
         next();
     });
     
-    // Body parser with size limits to prevent DOS attacks
+    /**
+     * Body Parsing with Size Limits
+     * 
+     * Limits request body size to prevent DOS attacks:
+     * - JSON: 10KB
+     * - URL-encoded: 10KB
+     */
     app.use(express.json({ limit: '10kb' }));
     app.use(express.urlencoded({ extended: true, limit: '10kb' }));
     

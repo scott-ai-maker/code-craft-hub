@@ -1,3 +1,16 @@
+/**
+ * User Controller
+ * 
+ * Handles all user-related operations including:
+ * - User authentication (registration, login, password reset)
+ * - User profile management (get, update, delete)
+ * - Token management (refresh, logout, revoke)
+ * - Email verification
+ * - Admin user management
+ * 
+ * @module controllers/userController
+ */
+
 const User = require('../models/userModel');
 const RefreshToken = require('../models/refreshTokenModel');
 const jwt = require('jsonwebtoken');
@@ -6,7 +19,19 @@ const { validateRegistration, validateLogin } = require('../utils/validation');
 const { NotFoundError, AuthenticationError, ValidationError } = require('../utils/errorHandler');
 const { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail } = require('../utils/email');
 
-// Helper: Generate access token
+/**
+ * Helper: Generate JWT Access Token
+ * 
+ * Creates a short-lived JWT token for API authentication.
+ * Included payload: user ID, email, role
+ * Expires in: 15 minutes
+ * 
+ * @param {Object} user - User document
+ * @param {string} user._id - User's MongoDB ID
+ * @param {string} user.email - User's email
+ * @param {string} user.role - User's role (user, admin, moderator)
+ * @returns {string} Signed JWT token
+ */
 const generateAccessToken = (user) => {
     return jwt.sign(
         { id: user._id, email: user.email, role: user.role },
@@ -15,7 +40,18 @@ const generateAccessToken = (user) => {
     );
 };
 
-// Helper: Generate refresh token
+/**
+ * Helper: Generate Refresh Token
+ * 
+ * Creates a long-lived refresh token for obtaining new access tokens.
+ * Stored in database for validation and revocation.
+ * Expires in: 7 days
+ * 
+ * @async
+ * @param {string} userId - User's MongoDB ID
+ * @param {string} ipAddress - Client IP address for tracking
+ * @returns {Promise<string>} Raw refresh token (hashed before storage)
+ */
 const generateRefreshToken = async (userId, ipAddress) => {
     // Create a refresh token that expires in 7 days
     const token = crypto.randomBytes(40).toString('hex');
@@ -32,12 +68,50 @@ const generateRefreshToken = async (userId, ipAddress) => {
     return token;
 };
 
-// Helper: Get IP address from request
+/**
+ * Helper: Extract Client IP Address
+ * 
+ * Gets the client's IP address from request, handling proxies and load balancers.
+ * 
+ * @param {Object} req - Express request object
+ * @returns {string} IP address or 'unknown'
+ */
 const getIpAddress = (req) => {
     return req.ip || req.connection.remoteAddress || 'unknown';
 };
 
-// Register a new user
+/**
+ * Register a New User
+ * 
+ * Creates a new user account with email verification requirement.
+ * 
+ * Process:
+ * 1. Validate input (username, email, password)
+ * 2. Create user (password hashed automatically)
+ * 3. Generate verification token
+ * 4. Send verification email (non-blocking)
+ * 5. Return user details
+ * 
+ * @async
+ * @param {Object} req - Express request
+ * @param {string} req.body.username - Username (3-20 chars, alphanumeric + underscore)
+ * @param {string} req.body.email - Email address
+ * @param {string} req.body.password - Password (8+ chars, mixed case, number, special char)
+ * @param {Object} res - Express response
+ * @param {Function} next - Express next middleware
+ * 
+ * @returns {Object} 201 - User registration successful
+ * @throws {ValidationError} 400 - Invalid input
+ * @throws {ConflictError} 409 - Username or email already exists
+ * 
+ * @example
+ * POST /api/users/register
+ * {
+ *   "username": "john_doe",
+ *   "email": "john@example.com",
+ *   "password": "SecurePass123!"
+ * }
+ */
 exports.registerUser = async (req, res, next) => {
     try {
         const { username, email, password } = req.body;
@@ -52,7 +126,7 @@ exports.registerUser = async (req, res, next) => {
         const verificationToken = newUser.generateVerificationToken();
         await newUser.save();
         
-        // Send verification email
+        // Send verification email (non-blocking - log errors but don't fail)
         try {
             await sendVerificationEmail(email, username, verificationToken);
         } catch (emailError) {
@@ -77,54 +151,41 @@ exports.registerUser = async (req, res, next) => {
     }
 };
 
-// Login user
-exports.loginUser = async (req, res, next) => {
-    try {
-        const { email, password } = req.body;
-        
-        // Validate input
-        validateLogin(email, password);
-        
-        // Find user
-        const user = await User.findOne({ email });
-        
-        // Verify password - use generic error to prevent user enumeration
-        const isMatch = user ? await user.comparePassword(password) : false;
-        
-        if (!user || !isMatch) {
-            throw new AuthenticationError('Invalid email or password');
-        }
-        
-        // Check if email is verified
-        if (!user.isVerified) {
-            throw new AuthenticationError('Please verify your email before logging in. Check your inbox for the verification link.');
-        }
-        
-        // Generate tokens
-        const accessToken = generateAccessToken(user);
-        const refreshToken = await generateRefreshToken(user._id, getIpAddress(req));
-        
-        res.status(200).json({ 
-            success: true,
-            message: 'Login successful',
-            data: {
-                accessToken,
-                refreshToken,
-                user: {
-                    id: user._id,
-                    username: user.username,
-                    email: user.email,
-                    role: user.role,
-                    isVerified: user.isVerified,
-                    createdAt: user.createdAt,
-                    updatedAt: user.updatedAt
-                }
-            }
-        });
-    } catch (error) {
-        next(error);
-    }
-};
+/**
+ * Login User
+ * 
+ * Authenticates user and returns JWT tokens.
+ * 
+ * Process:
+ * 1. Validate email and password
+ * 2. Find user by email
+ * 3. Verify password
+ * 4. Check email verification status
+ * 5. Generate access and refresh tokens
+ * 6. Return tokens and user info
+ * 
+ * Security:
+ * - Uses generic error message to prevent user enumeration
+ * - Requires email verification before login
+ * 
+ * @async
+ * @param {Object} req - Express request
+ * @param {string} req.body.email - User's email
+ * @param {string} req.body.password - User's password
+ * @param {Object} res - Express response
+ * @param {Function} next - Express next middleware
+ * 
+ * @returns {Object} 200 - Login successful with tokens
+ * @throws {ValidationError} 400 - Invalid input
+ * @throws {AuthenticationError} 401 - Invalid credentials or email not verified
+ * 
+ * @example
+ * POST /api/users/login
+ * {
+ *   "email": "john@example.com",
+ *   "password": "SecurePass123!"
+ * }
+ */
 
 // Get current user profile
 exports.getProfile = async (req, res, next) => {
@@ -668,139 +729,24 @@ exports.permanentlyDeleteUser = async (req, res, next) => {
     }
 };
 
-// Restore soft-deleted user (admin only)
-exports.restoreUser = async (req, res, next) => {
-    try {
-        const userId = req.params.id;
-        
-        const user = await User.findById(userId);
-        if (!user) {
-            throw new NotFoundError('User not found');
-        }
-        
-        if (!user.deletedAt) {
-            throw new ValidationError('User is not deleted');
-        }
-        
-        await user.restore();
-        
-        res.status(200).json({
-            success: true,
-            message: 'User restored successfully',
-            data: {
-                _id: user._id,
-                username: user.username,
-                email: user.email,
-                role: user.role
-            }
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-// Permanently delete user (admin only)
-exports.permanentlyDeleteUser = async (req, res, next) => {
-    try {
-        const userId = req.params.id;
-        
-        const user = await User.findById(userId);
-        if (!user) {
-            throw new NotFoundError('User not found');
-        }
-        
-        // Only allow permanent deletion of already soft-deleted users
-        if (!user.deletedAt) {
-            throw new ValidationError('User must be soft-deleted first. Use soft delete endpoint to mark user as deleted.');
-        }
-        
-        // Prevent self-deletion
-        if (req.user.id === userId) {
-            throw new ValidationError('Cannot permanently delete your own account');
-        }
-        
-        // Permanently delete all associated refresh tokens
-        await RefreshToken.deleteMany({ userId: user._id });
-        
-        // Permanently delete the user
-        await User.findByIdAndDelete(userId);
-        
-        res.status(200).json({
-            success: true,
-            message: 'User permanently deleted'
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-// Restore soft-deleted user (admin only)
-exports.restoreUser = async (req, res, next) => {
-    try {
-        const userId = req.params.id;
-        
-        const user = await User.findById(userId);
-        if (!user) {
-            throw new NotFoundError('User not found');
-        }
-        
-        if (!user.deletedAt) {
-            throw new ValidationError('User is not deleted');
-        }
-        
-        await user.restore();
-        
-        res.status(200).json({
-            success: true,
-            message: 'User restored successfully',
-            data: {
-                _id: user._id,
-                username: user.username,
-                email: user.email,
-                role: user.role
-            }
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-// Permanently delete user (admin only)
-exports.permanentlyDeleteUser = async (req, res, next) => {
-    try {
-        const userId = req.params.id;
-        
-        const user = await User.findById(userId);
-        if (!user) {
-            throw new NotFoundError('User not found');
-        }
-        
-        // Only allow permanent deletion of already soft-deleted users
-        if (!user.deletedAt) {
-            throw new ValidationError('User must be soft-deleted first. Use soft delete endpoint to mark user as deleted.');
-        }
-        
-        // Prevent self-deletion
-        if (req.user.id === userId) {
-            throw new ValidationError('Cannot permanently delete your own account');
-        }
-        
-        // Permanently delete all associated refresh tokens
-        await RefreshToken.deleteMany({ userId: user._id });
-        
-        // Permanently delete the user
-        await User.findByIdAndDelete(userId);
-        
-        res.status(200).json({
-            success: true,
-            message: 'User permanently deleted'
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-// Forgot password - send reset email
+/**
+ * Forgot Password - Request Reset Token
+ * 
+ * Sends a password reset email with a token.
+ * Does not reveal if email exists (security best practice).
+ * Token expires in 1 hour.
+ * 
+ * @async
+ * @param {Object} req - Express request
+ * @param {string} req.body.email - User email
+ * @param {Object} res - Express response
+ * @param {Function} next - Express next middleware
+ * 
+ * @returns {Object} 200 - Password reset email sent (or appears to be)
+ * @throws {ValidationError} 400 - Email not provided
+ * 
+ * Security: Always returns success regardless of whether email exists
+ */
 exports.forgotPassword = async (req, res, next) => {
     try {
         const { email } = req.body;
@@ -844,7 +790,29 @@ exports.forgotPassword = async (req, res, next) => {
     }
 };
 
-// Reset password using token
+/**
+ * Reset Password Using Token
+ * 
+ * Resets user password using a valid reset token.
+ * Token must not be expired (1 hour expiration).
+ * All refresh tokens are revoked after password change for security.
+ * 
+ * @async
+ * @param {Object} req - Express request
+ * @param {string} req.params.token - Password reset token
+ * @param {string} req.body.newPassword - New password (must meet strength requirements)
+ * @param {Object} res - Express response
+ * @param {Function} next - Express next middleware
+ * 
+ * @returns {Object} 200 - Password reset successfully
+ * @throws {ValidationError} 400 - Invalid/expired token or weak password
+ * 
+ * @example
+ * POST /api/users/reset-password/:token
+ * {
+ *   "newPassword": "NewSecurePass123!"
+ * }
+ */
 exports.resetPassword = async (req, res, next) => {
     try {
         const { token } = req.params;
@@ -883,7 +851,7 @@ exports.resetPassword = async (req, res, next) => {
         user.passwordResetExpires = undefined;
         await user.save();
         
-        // Revoke all refresh tokens for security
+        // Revoke all refresh tokens for security (forces re-login on all devices)
         await RefreshToken.updateMany(
             { userId: user._id, revokedAt: null },
             { revokedAt: new Date() }

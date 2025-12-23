@@ -1,3 +1,15 @@
+/**
+ * Main Application Entry Point
+ * 
+ * This module initializes and starts the Express server with:
+ * - Environment variable validation
+ * - MongoDB connection
+ * - Middleware setup
+ * - Routes configuration
+ * - Error handling
+ * - Graceful shutdown management
+ */
+
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
@@ -10,18 +22,39 @@ const { specs, swaggerUi } = require('./config/swagger');
 
 let server;
 
-// Exported for testing to allow graceful shutdown
+/**
+ * Gracefully stops the server and closes database connections
+ * Used for testing and controlled shutdowns
+ * 
+ * @async
+ * @returns {Promise<void>}
+ */
 const stopServer = async () => {
     if (!server) return;
     await new Promise(resolve => server.close(resolve));
     await mongoose.connection.close();
 };
 
+/**
+ * Starts the Express server with all necessary configurations
+ * 
+ * Process:
+ * 1. Validates required environment variables
+ * 2. Initializes Express app with middleware
+ * 3. Connects to MongoDB database
+ * 4. Sets up API routes and health check endpoint
+ * 5. Starts listening on configured port
+ * 
+ * @async
+ * @returns {Promise<void>}
+ * @throws {Error} If environment variables are invalid or database connection fails
+ */
 const startServer = async () => {
     try {
         // Validate environment variables before starting
         validateEnv();
         
+        // Initialize Express app with security middleware
         const app = initServer();
         
         // Connect to database before starting server
@@ -70,9 +103,13 @@ const startServer = async () => {
             customSiteTitle: 'Code Craft Hub API Docs'
         }));
         
+        // User API routes
         app.use('/api/users', userRoutes);
+        
+        // Global error handling middleware (must be last)
         app.use(errorHandler);
         
+        // Start server on configured port
         const PORT = process.env.PORT || 5000;
         server = app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
     } catch (error) {
@@ -81,7 +118,20 @@ const startServer = async () => {
     }
 };
 
-// Graceful shutdown
+/**
+ * Gracefully shutdown the server
+ * 
+ * Process:
+ * 1. Stops accepting new requests
+ * 2. Closes HTTP server
+ * 3. Closes MongoDB connection
+ * 4. Forces shutdown after 10 seconds if connections don't close
+ * 
+ * Triggered by SIGTERM and SIGINT signals
+ * 
+ * @async
+ * @returns {void}
+ */
 const shutdown = async () => {
     console.log('\nShutting down gracefully...');
     if (server) {
@@ -97,7 +147,7 @@ const shutdown = async () => {
             }
         });
         
-        // Force shutdown after 10 seconds
+        // Force shutdown after 10 seconds to prevent hanging
         setTimeout(() => {
             console.error('Forcing shutdown after timeout');
             process.exit(1);
@@ -107,9 +157,12 @@ const shutdown = async () => {
     }
 };
 
+// Register graceful shutdown handlers for system signals
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
+// Start the application
 startServer();
 
+// Export functions for testing purposes
 module.exports = { startServer, stopServer };

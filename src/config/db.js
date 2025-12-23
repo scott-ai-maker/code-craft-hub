@@ -1,4 +1,27 @@
+/**
+ * MongoDB Database Connection
+ * 
+ * Establishes connection to MongoDB using Mongoose
+ * Handles connection errors and provides logging
+ */
+
 const mongoose = require('mongoose');
+
+/**
+ * Connects to MongoDB database
+ * 
+ * Uses connection string from MONGO_URI environment variable.
+ * On success: Logs confirmation message
+ * On failure: Logs error and exits process with code 1
+ * 
+ * @async
+ * @returns {Promise<void>}
+ * @throws {Error} Connection error from MongoDB
+ * 
+ * @example
+ * const connectDB = require('./config/db');
+ * await connectDB();
+ */
 const connectDB = async () => {
     try {
         await mongoose.connect(process.env.MONGO_URI);
