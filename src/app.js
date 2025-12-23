@@ -4,9 +4,13 @@ const connectDB = require('./config/db');
 const initServer = require('./config/server');
 const userRoutes = require('./routes/userRoutes');
 const errorHandler = require('./utils/errorHandler');
+const validateEnv = require('./utils/validateEnv');
 
 const startServer = async () => {
     try {
+        // Validate environment variables before starting
+        validateEnv();
+        
         const app = initServer();
         
         // Connect to database before starting server
