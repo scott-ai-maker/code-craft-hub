@@ -3,6 +3,8 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss');
 const logger = require('../utils/logger');
 
 // General API rate limiter
@@ -87,6 +89,46 @@ const initServer = () => {
     };
     
     app.use(cors(corsOptions));
+    
+    // Data sanitization against NoSQL query injection
+    app.use(mongoSanitize({
+        replaceWith: '_',
+        onSanitize: ({ req, key }) => {
+            logger.warn(`Sanitized NoSQL injection attempt: ${key} in ${req.method} ${req.path}`);
+        },
+    }));
+    
+    // XSS sanitization middleware
+    app.use((req, res, next) => {
+        // Sanitize request body
+        if (req.body) {
+            Object.keys(req.body).forEach(key => {
+                if (typeof req.body[key] === 'string') {
+                    req.body[key] = xss(req.body[key]);
+                }
+            });
+        }
+        
+        // Sanitize query parameters
+        if (req.query) {
+            Object.keys(req.query).forEach(key => {
+                if (typeof req.query[key] === 'string') {
+                    req.query[key] = xss(req.query[key]);
+                }
+            });
+        }
+        
+        // Sanitize URL parameters
+        if (req.params) {
+            Object.keys(req.params).forEach(key => {
+                if (typeof req.params[key] === 'string') {
+                    req.params[key] = xss(req.params[key]);
+                }
+            });
+        }
+        
+        next();
+    });
     
     // Body parser with size limits to prevent DOS attacks
     app.use(express.json({ limit: '10kb' }));
