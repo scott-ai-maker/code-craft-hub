@@ -38,14 +38,12 @@ exports.loginUser = async (req, res, next) => {
         
         // Find user
         const user = await User.findOne({ email });
-        if (!user) {
-            throw new NotFoundError('User not found');
-        }
         
-        // Verify password
-        const isMatch = await user.comparePassword(password);
-        if (!isMatch) {
-            throw new AuthenticationError('Invalid credentials');
+        // Verify password - use generic error to prevent user enumeration
+        const isMatch = user ? await user.comparePassword(password) : false;
+        
+        if (!user || !isMatch) {
+            throw new AuthenticationError('Invalid email or password');
         }
         
         // Generate token

@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const morgan = require('morgan');
+const logger = require('../utils/logger');
 
 // General API rate limiter
 const apiLimiter = rateLimit({
@@ -45,6 +47,19 @@ const initServer = () => {
             preload: true
         }
     }));
+    
+    // Request logging
+    if (process.env.NODE_ENV === 'production') {
+        // Production: Log to winston
+        app.use(morgan('combined', {
+            stream: {
+                write: (message) => logger.info(message.trim())
+            }
+        }));
+    } else {
+        // Development: Colorized console output
+        app.use(morgan('dev'));
+    }
     
     // Apply general rate limiter to all API routes
     app.use('/api/', apiLimiter);
