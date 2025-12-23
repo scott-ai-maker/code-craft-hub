@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
 
 // General API rate limiter
 const apiLimiter = rateLimit({
@@ -29,6 +30,21 @@ const authLimiter = rateLimit({
 
 const initServer = () => {
     const app = express();
+    
+    // Security headers with Helmet
+    app.use(helmet({
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                styleSrc: ["'self'", "'unsafe-inline'"],
+            },
+        },
+        hsts: {
+            maxAge: 31536000, // 1 year in seconds
+            includeSubDomains: true,
+            preload: true
+        }
+    }));
     
     // Apply general rate limiter to all API routes
     app.use('/api/', apiLimiter);
