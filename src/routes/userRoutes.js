@@ -10,12 +10,13 @@ const {
     deleteUser 
 } = require('../controllers/userController');
 const authMiddleware = require('../middleware/authMiddleware');
+const { authLimiter } = require('../config/server');
 
 const router = express.Router();
 
-// Public routes
-router.post('/register', registerUser);
-router.post('/login', loginUser);
+// Public routes with strict rate limiting
+router.post('/register', authLimiter, registerUser);
+router.post('/login', authLimiter, loginUser);
 
 // Protected routes (require authentication)
 router.get('/profile', authMiddleware, getProfile);
