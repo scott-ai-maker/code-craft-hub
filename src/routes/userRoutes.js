@@ -7,7 +7,9 @@ const {
     getAllUsers,
     updateProfile, 
     changePassword, 
-    deleteUser 
+    deleteUser,
+    verifyEmail,
+    resendVerification
 } = require('../controllers/userController');
 const authMiddleware = require('../middleware/authMiddleware');
 const validateObjectId = require('../middleware/validateObjectId');
@@ -18,6 +20,8 @@ const router = express.Router();
 // Public routes with strict rate limiting
 router.post('/register', authLimiter, registerUser);
 router.post('/login', authLimiter, loginUser);
+router.get('/verify-email/:token', verifyEmail);
+router.post('/resend-verification', authLimiter, resendVerification);
 
 // Protected routes (require authentication)
 router.get('/profile', authMiddleware, getProfile);

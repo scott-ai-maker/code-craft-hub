@@ -1,7 +1,9 @@
 const User = require('../models/userModel');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { validateRegistration, validateLogin } = require('../utils/validation');
 const { NotFoundError, AuthenticationError, ValidationError } = require('../utils/errorHandler');
+const { sendVerificationEmail, sendWelcomeEmail } = require('../utils/email');
 
 // Register a new user
 exports.registerUser = async (req, res, next) => {
@@ -13,14 +15,26 @@ exports.registerUser = async (req, res, next) => {
         
         // Create new user (password will be hashed by model pre-save hook)
         const newUser = new User({ username, email, password });
+        
+        // Generate verification token
+        const verificationToken = newUser.generateVerificationToken();
         await newUser.save();
+        
+        // Send verification email
+        try {
+            await sendVerificationEmail(email, username, verificationToken);
+        } catch (emailError) {
+            // Log error but don't fail registration
+            console.error('Failed to send verification email:', emailError.message);
+        }
         
         res.status(201).json({ 
             success: true,
-            message: 'User registered successfully',
+            message: 'User registered successfully. Please check your email to verify your account.',
             data: {
                 username: newUser.username,
                 email: newUser.email,
+                isVerified: newUser.isVerified,
                 createdAt: newUser.createdAt,
                 updatedAt: newUser.updatedAt
             }
@@ -48,6 +62,11 @@ exports.loginUser = async (req, res, next) => {
             throw new AuthenticationError('Invalid email or password');
         }
         
+        // Check if email is verified
+        if (!user.isVerified) {
+            throw new AuthenticationError('Please verify your email before logging in. Check your inbox for the verification link.');
+        }
+        
         // Generate token
         const token = jwt.sign(
             { id: user._id, email: user.email },
@@ -64,6 +83,7 @@ exports.loginUser = async (req, res, next) => {
                     id: user._id,
                     username: user.username,
                     email: user.email,
+                    isVerified: user.isVerified,
                     createdAt: user.createdAt,
                     updatedAt: user.updatedAt
                 }
@@ -232,6 +252,90 @@ exports.deleteUser = async (req, res, next) => {
         res.status(200).json({
             success: true,
             message: 'Account deleted successfully'
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Verify email
+exports.verifyEmail = async (req, res, next) => {
+    try {
+        const { token } = req.params;
+        
+        if (!token) {
+            throw new ValidationError('Verification token is required');
+        }
+        
+        // Hash the token to match stored hash
+        const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+        
+        // Find user with matching token and non-expired token
+        const user = await User.findOne({
+            verificationToken: hashedToken,
+            verificationTokenExpires: { $gt: Date.now() },
+        });
+        
+        if (!user) {
+            throw new ValidationError('Invalid or expired verification token');
+        }
+        
+        // Update user verification status
+        user.isVerified = true;
+        user.verificationToken = undefined;
+        user.verificationTokenExpires = undefined;
+        await user.save();
+        
+        // Send welcome email
+        try {
+            await sendWelcomeEmail(user.email, user.username);
+        } catch (emailError) {
+            console.error('Failed to send welcome email:', emailError.message);
+        }
+        
+        res.status(200).json({
+            success: true,
+            message: 'Email verified successfully! You can now log in.',
+            data: {
+                username: user.username,
+                email: user.email,
+                isVerified: user.isVerified,
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Resend verification email
+exports.resendVerification = async (req, res, next) => {
+    try {
+        const { email } = req.body;
+        
+        if (!email) {
+            throw new ValidationError('Email is required');
+        }
+        
+        const user = await User.findOne({ email });
+        
+        if (!user) {
+            throw new NotFoundError('User not found');
+        }
+        
+        if (user.isVerified) {
+            throw new ValidationError('Email is already verified');
+        }
+        
+        // Generate new verification token
+        const verificationToken = user.generateVerificationToken();
+        await user.save();
+        
+        // Send verification email
+        await sendVerificationEmail(email, user.username, verificationToken);
+        
+        res.status(200).json({
+            success: true,
+            message: 'Verification email sent. Please check your inbox.',
         });
     } catch (error) {
         next(error);
