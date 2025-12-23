@@ -20,7 +20,9 @@ exports.registerUser = async (req, res, next) => {
             message: 'User registered successfully',
             data: {
                 username: newUser.username,
-                email: newUser.email
+                email: newUser.email,
+                createdAt: newUser.createdAt,
+                updatedAt: newUser.updatedAt
             }
         });
     } catch (error) {
@@ -61,7 +63,9 @@ exports.loginUser = async (req, res, next) => {
                 user: {
                     id: user._id,
                     username: user.username,
-                    email: user.email
+                    email: user.email,
+                    createdAt: user.createdAt,
+                    updatedAt: user.updatedAt
                 }
             }
         });

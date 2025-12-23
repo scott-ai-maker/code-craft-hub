@@ -19,10 +19,8 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
-    createdAt: {
-        type: Date,
-        default: Date.now,
-    },
+}, {
+    timestamps: true // Adds createdAt and updatedAt automatically
 });
 
 // Hash password before saving
