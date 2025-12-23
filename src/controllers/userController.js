@@ -108,7 +108,7 @@ exports.getUserById = async (req, res, next) => {
 exports.getAllUsers = async (req, res, next) => {
     try {
         const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
+        const limit = Math.min(parseInt(req.query.limit) || 10, 100); // Max 100 items per page
         const skip = (page - 1) * limit;
         
         const users = await User.find()
