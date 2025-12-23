@@ -186,6 +186,55 @@ exports.registerUser = async (req, res, next) => {
  *   "password": "SecurePass123!"
  * }
  */
+exports.loginUser = async (req, res, next) => {
+    try {
+        const { email, password } = req.body;
+        
+        // Validate input
+        validateLogin(email, password);
+        
+        // Find user by email
+        const user = await User.findOne({ email });
+        if (!user) {
+            throw new AuthenticationError('Invalid credentials');
+        }
+        
+        // Check if email is verified
+        if (!user.isVerified) {
+            throw new AuthenticationError('Please verify your email before logging in');
+        }
+        
+        // Verify password
+        const isPasswordValid = await user.comparePassword(password);
+        if (!isPasswordValid) {
+            throw new AuthenticationError('Invalid credentials');
+        }
+        
+        // Generate tokens
+        const accessToken = generateAccessToken(user);
+        const refreshTokenDoc = await generateRefreshToken(user);
+        
+        res.status(200).json({
+            success: true,
+            message: 'Login successful',
+            data: {
+                accessToken,
+                refreshToken: refreshTokenDoc.token,
+                user: {
+                    id: user._id,
+                    username: user.username,
+                    email: user.email,
+                    role: user.role,
+                    isVerified: user.isVerified,
+                    createdAt: user.createdAt,
+                    updatedAt: user.updatedAt
+                }
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
 
 // Get current user profile
 exports.getProfile = async (req, res, next) => {

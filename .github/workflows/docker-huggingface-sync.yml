@@ -1,0 +1,208 @@
+name: Build and Push Docker Image to Hugging Face
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'Dockerfile'
+      - '.github/workflows/docker-huggingface-sync.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch: # Allow manual trigger
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: code-craft-hub
+  HF_REPO_NAME: code-craft-hub
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+        if: github.event_name != 'pull_request'
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Hugging Face CLI
+        run: |
+          pip install huggingface-hub
+        if: github.event_name != 'pull_request'
+
+      - name: Push to Hugging Face Model Hub
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GIT_AUTHOR_NAME: github-actions
+          GIT_AUTHOR_EMAIL: actions@github.com
+        run: |
+          # Initialize Hugging Face Hub repo
+          huggingface-cli repo create \
+            --type model \
+            --repo-id ${{ secrets.HF_USERNAME }}/${{ env.HF_REPO_NAME }} \
+            --exist-ok \
+            --token ${{ secrets.HF_TOKEN }}
+          
+          # Clone HF repo
+          git clone https://${{ secrets.HF_USERNAME }}:${{ secrets.HF_TOKEN }}@huggingface.co/models/${{ secrets.HF_USERNAME }}/${{ env.HF_REPO_NAME }} hf-repo || true
+          
+          # Copy necessary files to HF repo
+          mkdir -p hf-repo
+          cp -r src/ hf-repo/
+          cp package.json hf-repo/
+          cp Dockerfile hf-repo/
+          cp README.md hf-repo/ || true
+          cp .env.example hf-repo/ || true
+          
+          # Create model card if it doesn't exist
+          if [ ! -f hf-repo/README.md ]; then
+            cat > hf-repo/README.md << 'HFEOF'
+          ---
+          library_name: transformers
+          tags:
+            - docker
+            - nodejs
+            - mongodb
+            - user-management
+          ---
+          
+          # Code Craft Hub - User Management Service
+          
+          Docker-containerized Node.js user management service with MongoDB.
+          
+          ## Features
+          - User authentication and authorization
+          - Role-based access control
+          - Password management
+          - Email notifications
+          - API documentation with Swagger
+          - Comprehensive logging
+          - Security best practices
+          
+          ## Quick Start
+          
+          ```bash
+          docker run -p 3000:3000 ${{ secrets.DOCKER_USERNAME }}/code-craft-hub:latest
+          ```
+          
+          See the main repository for more details.
+          HFEOF
+          fi
+          
+          # Commit and push to HF Hub
+          cd hf-repo
+          git config --global user.email "actions@github.com"
+          git config --global user.name "github-actions"
+          git add .
+          git commit -m "Sync from main repository: $(git rev-parse --short HEAD)" || true
+          git push || true
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+
+      - name: Push Docker image to Hugging Face Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          echo "Note: Direct Docker image push to Hugging Face requires manual setup in HF Space."
+          echo "The image is available at: docker.io/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}"
+        if: github.event_name != 'pull_request'
+
+      - name: Generate build report
+        if: always()
+        run: |
+          echo "## Docker Build Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tags**: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+
+  test-docker-image:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image for testing
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: code-craft-hub:test
+          cache-from: type=gha
+
+      - name: Run basic container tests
+        run: |
+          # Test if image exists
+          docker images | grep code-craft-hub:test
+          
+          echo "Docker image build successful!"
+
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'

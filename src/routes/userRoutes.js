@@ -598,5 +598,3 @@ router.post('/forgot-password', authLimiter, forgotPassword);
 router.post('/reset-password/:token', resetPassword);
 
 module.exports = router;
-
-module.exports = router;

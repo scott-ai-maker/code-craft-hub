@@ -10,7 +10,7 @@ const mongoose = require('mongoose');
 /**
  * Connects to MongoDB database
  * 
- * Uses connection string from MONGO_URI environment variable.
+ * Uses connection string from MONGODB_URI environment variable.
  * On success: Logs confirmation message
  * On failure: Logs error and exits process with code 1
  * 
@@ -24,7 +24,7 @@ const mongoose = require('mongoose');
  */
 const connectDB = async () => {
     try {
-        await mongoose.connect(process.env.MONGO_URI);
+        await mongoose.connect(process.env.MONGODB_URI);
         console.log('MongoDB connected successfully.');
     } catch (error) {
         console.error('MongoDB connection failed:', error);

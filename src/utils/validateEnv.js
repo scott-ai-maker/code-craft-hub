@@ -1,4 +1,4 @@
-const requiredEnvVars = ['MONGO_URI', 'JWT_SECRET', 'PORT'];
+const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET', 'PORT'];
 
 /**
  * Validates that all required environment variables are present
