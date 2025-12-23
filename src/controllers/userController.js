@@ -146,7 +146,7 @@ exports.getProfile = async (req, res, next) => {
 // Get user by ID
 exports.getUserById = async (req, res, next) => {
     try {
-        const user = await User.findById(req.params.id).select('-password');
+        const user = await User.findOne({ _id: req.params.id, deletedAt: null }).select('-password');
         if (!user) {
             throw new NotFoundError('User not found');
         }
@@ -167,13 +167,13 @@ exports.getAllUsers = async (req, res, next) => {
         const limit = Math.min(parseInt(req.query.limit) || 10, 100); // Max 100 items per page
         const skip = (page - 1) * limit;
         
-        const users = await User.find()
+        const users = await User.find({ deletedAt: null })
             .select('-password')
             .limit(limit)
             .skip(skip)
             .sort({ createdAt: -1 });
         
-        const total = await User.countDocuments();
+        const total = await User.countDocuments({ deletedAt: null });
         
         res.status(200).json({
             success: true,
@@ -206,6 +206,12 @@ exports.updateProfile = async (req, res, next) => {
         const updateData = {};
         if (username) updateData.username = username;
         if (email) updateData.email = email;
+        
+        // Check if user exists and not deleted
+        const existingUser = await User.findOne({ _id: userId, deletedAt: null });
+        if (!existingUser) {
+            throw new NotFoundError('User not found');
+        }
         
         const user = await User.findByIdAndUpdate(
             userId,
@@ -266,7 +272,7 @@ exports.changePassword = async (req, res, next) => {
     }
 };
 
-// Delete user account
+// Delete user account (soft delete)
 exports.deleteUser = async (req, res, next) => {
     try {
         const userId = req.params.id;
@@ -276,10 +282,23 @@ exports.deleteUser = async (req, res, next) => {
             throw new AuthenticationError('You can only delete your own account');
         }
         
-        const user = await User.findByIdAndDelete(userId);
+        const user = await User.findById(userId);
         if (!user) {
             throw new NotFoundError('User not found');
         }
+        
+        if (user.deletedAt) {
+            throw new ValidationError('Account is already deleted');
+        }
+        
+        // Soft delete the user
+        await user.softDelete();
+        
+        // Revoke all refresh tokens for this user
+        await RefreshToken.updateMany(
+            { userId: user._id, revokedAt: null },
+            { revokedAt: new Date() }
+        );
         
         res.status(200).json({
             success: true,
@@ -552,6 +571,12 @@ exports.getAllUsersAdmin = async (req, res, next) => {
             filter.role = req.query.role;
         }
         
+        // Admin can optionally view deleted users
+        const includeDeleted = req.query.includeDeleted === 'true';
+        if (!includeDeleted) {
+            filter.deletedAt = null;
+        }
+        
         const users = await User.find(filter)
             .select('-password -verificationToken')
             .limit(limit)
@@ -571,6 +596,204 @@ exports.getAllUsersAdmin = async (req, res, next) => {
                     limit,
                 }
             }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Restore soft-deleted user (admin only)
+exports.restoreUser = async (req, res, next) => {
+    try {
+        const userId = req.params.id;
+        
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new NotFoundError('User not found');
+        }
+        
+        if (!user.deletedAt) {
+            throw new ValidationError('User is not deleted');
+        }
+        
+        await user.restore();
+        
+        res.status(200).json({
+            success: true,
+            message: 'User restored successfully',
+            data: {
+                _id: user._id,
+                username: user.username,
+                email: user.email,
+                role: user.role
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Permanently delete user (admin only)
+exports.permanentlyDeleteUser = async (req, res, next) => {
+    try {
+        const userId = req.params.id;
+        
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new NotFoundError('User not found');
+        }
+        
+        // Only allow permanent deletion of already soft-deleted users
+        if (!user.deletedAt) {
+            throw new ValidationError('User must be soft-deleted first. Use soft delete endpoint to mark user as deleted.')
+        }
+        
+        // Prevent self-deletion
+        if (req.user.id === userId) {
+            throw new ValidationError('Cannot permanently delete your own account');
+        }
+        
+        // Permanently delete all associated refresh tokens
+        await RefreshToken.deleteMany({ userId: user._id });
+        
+        // Permanently delete the user
+        await User.findByIdAndDelete(userId);
+        
+        res.status(200).json({
+            success: true,
+            message: 'User permanently deleted'
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Restore soft-deleted user (admin only)
+exports.restoreUser = async (req, res, next) => {
+    try {
+        const userId = req.params.id;
+        
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new NotFoundError('User not found');
+        }
+        
+        if (!user.deletedAt) {
+            throw new ValidationError('User is not deleted');
+        }
+        
+        await user.restore();
+        
+        res.status(200).json({
+            success: true,
+            message: 'User restored successfully',
+            data: {
+                _id: user._id,
+                username: user.username,
+                email: user.email,
+                role: user.role
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Permanently delete user (admin only)
+exports.permanentlyDeleteUser = async (req, res, next) => {
+    try {
+        const userId = req.params.id;
+        
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new NotFoundError('User not found');
+        }
+        
+        // Only allow permanent deletion of already soft-deleted users
+        if (!user.deletedAt) {
+            throw new ValidationError('User must be soft-deleted first. Use soft delete endpoint to mark user as deleted.');
+        }
+        
+        // Prevent self-deletion
+        if (req.user.id === userId) {
+            throw new ValidationError('Cannot permanently delete your own account');
+        }
+        
+        // Permanently delete all associated refresh tokens
+        await RefreshToken.deleteMany({ userId: user._id });
+        
+        // Permanently delete the user
+        await User.findByIdAndDelete(userId);
+        
+        res.status(200).json({
+            success: true,
+            message: 'User permanently deleted'
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Restore soft-deleted user (admin only)
+exports.restoreUser = async (req, res, next) => {
+    try {
+        const userId = req.params.id;
+        
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new NotFoundError('User not found');
+        }
+        
+        if (!user.deletedAt) {
+            throw new ValidationError('User is not deleted');
+        }
+        
+        await user.restore();
+        
+        res.status(200).json({
+            success: true,
+            message: 'User restored successfully',
+            data: {
+                _id: user._id,
+                username: user.username,
+                email: user.email,
+                role: user.role
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Permanently delete user (admin only)
+exports.permanentlyDeleteUser = async (req, res, next) => {
+    try {
+        const userId = req.params.id;
+        
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new NotFoundError('User not found');
+        }
+        
+        // Only allow permanent deletion of already soft-deleted users
+        if (!user.deletedAt) {
+            throw new ValidationError('User must be soft-deleted first. Use soft delete endpoint to mark user as deleted.');
+        }
+        
+        // Prevent self-deletion
+        if (req.user.id === userId) {
+            throw new ValidationError('Cannot permanently delete your own account');
+        }
+        
+        // Permanently delete all associated refresh tokens
+        await RefreshToken.deleteMany({ userId: user._id });
+        
+        // Permanently delete the user
+        await User.findByIdAndDelete(userId);
+        
+        res.status(200).json({
+            success: true,
+            message: 'User permanently deleted'
         });
     } catch (error) {
         next(error);

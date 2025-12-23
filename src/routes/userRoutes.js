@@ -14,7 +14,9 @@ const {
     logout,
     revokeAllTokens,
     updateUserRole,
-    getAllUsersAdmin
+    getAllUsersAdmin,
+    restoreUser,
+    permanentlyDeleteUser
 } = require('../controllers/userController');
 const authMiddleware = require('../middleware/authMiddleware');
 const authorize = require('../middleware/authorize');
@@ -475,5 +477,59 @@ router.patch('/:id/role', authMiddleware, authorize('admin'), validateObjectId('
  */
 // Moderator and Admin routes
 router.delete('/admin/:id', authMiddleware, authorize('admin', 'moderator'), validateObjectId('id'), deleteUser);
+
+/**
+ * @swagger
+ * /api/users/{id}/restore:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Restore soft-deleted user
+ *     description: Restore a user that was soft-deleted (admin only)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: User restored successfully
+ *       403:
+ *         description: Insufficient permissions
+ *       404:
+ *         description: User not found or not deleted
+ */
+router.post('/:id/restore', authMiddleware, authorize('admin'), validateObjectId('id'), restoreUser);
+
+/**
+ * @swagger
+ * /api/users/{id}/permanent-delete:
+ *   delete:
+ *     tags: [Admin]
+ *     summary: Permanently delete user
+ *     description: Permanently remove a soft-deleted user from database (admin only). User must be soft-deleted first.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: User permanently deleted
+ *       403:
+ *         description: Insufficient permissions
+ *       404:
+ *         description: User not found
+ *       400:
+ *         description: User is not soft-deleted
+ */
+router.delete('/:id/permanent-delete', authMiddleware, authorize('admin'), validateObjectId('id'), permanentlyDeleteUser);
+
+module.exports = router;
 
 module.exports = router;

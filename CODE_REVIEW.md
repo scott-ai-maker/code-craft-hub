@@ -203,12 +203,17 @@ app.use(xss()); // Prevent XSS attacks
 ```
 
 ### 18. Add API Documentation
-- Install Swagger: `npm install swagger-ui-express swagger-jsdoc`
-- Document all endpoints
-- Add example requests/responses
+- ✅ Install Swagger: `npm install swagger-ui-express swagger-jsdoc`
+- ✅ Document all endpoints
+- ✅ Add example requests/responses
 
 ### 19. Implement Soft Delete
-Instead of permanent deletion, add `isDeleted` flag
+- ✅ Add `deletedAt` field to User schema (default: null)
+- ✅ Query helpers to automatically exclude soft-deleted users
+- ✅ Methods: `user.softDelete()` and `user.restore()`
+- ✅ Admin endpoints: `POST /api/users/{id}/restore` and `DELETE /api/users/{id}/permanent-delete`
+- ✅ All queries updated to filter deleted users
+- ✅ Restore revokes all refresh tokens on soft delete
 
 ### 20. Add Password Reset Flow
 - Forgot password endpoint

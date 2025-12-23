@@ -35,9 +35,40 @@ const userSchema = new mongoose.Schema({
     verificationTokenExpires: {
         type: Date,
     },
+    deletedAt: {
+        type: Date,
+        default: null,
+    },
 }, {
     timestamps: true // Adds createdAt and updatedAt automatically
 });
+
+// Query helper to exclude soft-deleted records
+userSchema.query.notDeleted = function() {
+    return this.where({ deletedAt: null });
+};
+
+// Query helper to get only deleted records
+userSchema.query.onlyDeleted = function() {
+    return this.where({ deletedAt: { $ne: null } });
+};
+
+// Virtual for checking if user is deleted
+userSchema.virtual('isDeleted').get(function() {
+    return this.deletedAt !== null;
+});
+
+// Method to soft delete
+userSchema.methods.softDelete = function() {
+    this.deletedAt = new Date();
+    return this.save();
+};
+
+// Method to restore
+userSchema.methods.restore = function() {
+    this.deletedAt = null;
+    return this.save();
+};
 
 // Hash password before saving
 userSchema.pre('save', async function (next) {
