@@ -16,7 +16,9 @@ const {
     updateUserRole,
     getAllUsersAdmin,
     restoreUser,
-    permanentlyDeleteUser
+    permanentlyDeleteUser,
+    forgotPassword,
+    resetPassword
 } = require('../controllers/userController');
 const authMiddleware = require('../middleware/authMiddleware');
 const authorize = require('../middleware/authorize');
@@ -529,6 +531,71 @@ router.post('/:id/restore', authMiddleware, authorize('admin'), validateObjectId
  *         description: User is not soft-deleted
  */
 router.delete('/:id/permanent-delete', authMiddleware, authorize('admin'), validateObjectId('id'), permanentlyDeleteUser);
+
+/**
+ * @swagger
+ * /api/users/forgot-password:
+ *   post:
+ *     tags: [Authentication]
+ *     summary: Request password reset
+ *     description: Send password reset email for users who forgot their password
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: john@example.com
+ *     responses:
+ *       200:
+ *         description: Password reset email sent (if account exists)
+ *       400:
+ *         description: Email is required
+ */
+router.post('/forgot-password', authLimiter, forgotPassword);
+
+/**
+ * @swagger
+ * /api/users/reset-password/{token}:
+ *   post:
+ *     tags: [Authentication]
+ *     summary: Reset password with token
+ *     description: Reset user password using the token from the reset email. Logs out user from all devices.
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Password reset token from email
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - newPassword
+ *             properties:
+ *               newPassword:
+ *                 type: string
+ *                 minLength: 8
+ *                 example: NewSecurePass123!
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ *       400:
+ *         description: Invalid or expired token
+ *       422:
+ *         description: Invalid password format
+ */
+router.post('/reset-password/:token', resetPassword);
 
 module.exports = router;
 

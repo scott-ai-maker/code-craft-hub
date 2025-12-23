@@ -35,6 +35,12 @@ const userSchema = new mongoose.Schema({
     verificationTokenExpires: {
         type: Date,
     },
+    passwordResetToken: {
+        type: String,
+    },
+    passwordResetExpires: {
+        type: Date,
+    },
     deletedAt: {
         type: Date,
         default: null,
@@ -88,6 +94,14 @@ userSchema.methods.generateVerificationToken = function () {
     const token = crypto.randomBytes(32).toString('hex');
     this.verificationToken = crypto.createHash('sha256').update(token).digest('hex');
     this.verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+    return token;
+};
+
+// Method to generate password reset token
+userSchema.methods.generatePasswordResetToken = function () {
+    const token = crypto.randomBytes(32).toString('hex');
+    this.passwordResetToken = crypto.createHash('sha256').update(token).digest('hex');
+    this.passwordResetExpires = Date.now() + 1 * 60 * 60 * 1000; // 1 hour
     return token;
 };
 

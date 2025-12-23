@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { validateRegistration, validateLogin } = require('../utils/validation');
 const { NotFoundError, AuthenticationError, ValidationError } = require('../utils/errorHandler');
-const { sendVerificationEmail, sendWelcomeEmail } = require('../utils/email');
+const { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail } = require('../utils/email');
 
 // Helper: Generate access token
 const generateAccessToken = (user) => {
@@ -794,6 +794,104 @@ exports.permanentlyDeleteUser = async (req, res, next) => {
         res.status(200).json({
             success: true,
             message: 'User permanently deleted'
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Forgot password - send reset email
+exports.forgotPassword = async (req, res, next) => {
+    try {
+        const { email } = req.body;
+        
+        if (!email) {
+            throw new ValidationError('Email is required');
+        }
+        
+        // Find user by email
+        const user = await User.findOne({ email });
+        
+        // Don't reveal if email exists (security best practice)
+        if (!user || user.deletedAt) {
+            return res.status(200).json({
+                success: true,
+                message: 'If an account with that email exists, a password reset link has been sent.'
+            });
+        }
+        
+        // Generate password reset token
+        const resetToken = user.generatePasswordResetToken();
+        await user.save();
+        
+        // Send reset email
+        try {
+            await sendPasswordResetEmail(email, user.username, resetToken);
+        } catch (emailError) {
+            // Clear tokens if email fails
+            user.passwordResetToken = undefined;
+            user.passwordResetExpires = undefined;
+            await user.save();
+            throw emailError;
+        }
+        
+        res.status(200).json({
+            success: true,
+            message: 'If an account with that email exists, a password reset link has been sent.'
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Reset password using token
+exports.resetPassword = async (req, res, next) => {
+    try {
+        const { token } = req.params;
+        const { newPassword } = req.body;
+        
+        if (!token) {
+            throw new ValidationError('Reset token is required');
+        }
+        
+        if (!newPassword) {
+            throw new ValidationError('New password is required');
+        }
+        
+        // Validate new password
+        const { isValidPassword } = require('../utils/validation');
+        if (!isValidPassword(newPassword)) {
+            throw new ValidationError('Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character');
+        }
+        
+        // Hash the token to match stored hash
+        const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+        
+        // Find user with matching token and non-expired token
+        const user = await User.findOne({
+            passwordResetToken: hashedToken,
+            passwordResetExpires: { $gt: Date.now() },
+        });
+        
+        if (!user) {
+            throw new ValidationError('Invalid or expired password reset token');
+        }
+        
+        // Update password
+        user.password = newPassword;
+        user.passwordResetToken = undefined;
+        user.passwordResetExpires = undefined;
+        await user.save();
+        
+        // Revoke all refresh tokens for security
+        await RefreshToken.updateMany(
+            { userId: user._id, revokedAt: null },
+            { revokedAt: new Date() }
+        );
+        
+        res.status(200).json({
+            success: true,
+            message: 'Password reset successfully. You have been logged out from all devices. Please log in with your new password.'
         });
     } catch (error) {
         next(error);
