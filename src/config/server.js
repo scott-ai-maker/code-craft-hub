@@ -34,7 +34,29 @@ const initServer = () => {
     // Apply general rate limiter to all API routes
     app.use('/api/', apiLimiter);
     
-    app.use(cors());
+    // Configure CORS with specific origins
+    const allowedOrigins = process.env.ALLOWED_ORIGINS 
+        ? process.env.ALLOWED_ORIGINS.split(',')
+        : ['http://localhost:3000'];
+    
+    const corsOptions = {
+        origin: (origin, callback) => {
+            // Allow requests with no origin (like mobile apps, Postman, or curl)
+            if (!origin) return callback(null, true);
+            
+            if (allowedOrigins.indexOf(origin) !== -1) {
+                callback(null, true);
+            } else {
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
+        credentials: true,
+        optionsSuccessStatus: 200,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+        allowedHeaders: ['Content-Type', 'Authorization']
+    };
+    
+    app.use(cors(corsOptions));
     app.use(bodyParser.json());
     
     return app;
