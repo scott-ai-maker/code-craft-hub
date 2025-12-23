@@ -1,9 +1,41 @@
 const User = require('../models/userModel');
+const RefreshToken = require('../models/refreshTokenModel');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { validateRegistration, validateLogin } = require('../utils/validation');
 const { NotFoundError, AuthenticationError, ValidationError } = require('../utils/errorHandler');
 const { sendVerificationEmail, sendWelcomeEmail } = require('../utils/email');
+
+// Helper: Generate access token
+const generateAccessToken = (user) => {
+    return jwt.sign(
+        { id: user._id, email: user.email, role: user.role },
+        process.env.JWT_SECRET || 'secret',
+        { expiresIn: '15m' } // Short-lived access token
+    );
+};
+
+// Helper: Generate refresh token
+const generateRefreshToken = async (userId, ipAddress) => {
+    // Create a refresh token that expires in 7 days
+    const token = crypto.randomBytes(40).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    
+    const refreshToken = new RefreshToken({
+        token,
+        userId,
+        expiresAt,
+        createdByIp: ipAddress,
+    });
+    
+    await refreshToken.save();
+    return token;
+};
+
+// Helper: Get IP address from request
+const getIpAddress = (req) => {
+    return req.ip || req.connection.remoteAddress || 'unknown';
+};
 
 // Register a new user
 exports.registerUser = async (req, res, next) => {
@@ -34,6 +66,7 @@ exports.registerUser = async (req, res, next) => {
             data: {
                 username: newUser.username,
                 email: newUser.email,
+                role: newUser.role,
                 isVerified: newUser.isVerified,
                 createdAt: newUser.createdAt,
                 updatedAt: newUser.updatedAt
@@ -67,22 +100,21 @@ exports.loginUser = async (req, res, next) => {
             throw new AuthenticationError('Please verify your email before logging in. Check your inbox for the verification link.');
         }
         
-        // Generate token
-        const token = jwt.sign(
-            { id: user._id, email: user.email },
-            process.env.JWT_SECRET || 'secret',
-            { expiresIn: '1h' }
-        );
+        // Generate tokens
+        const accessToken = generateAccessToken(user);
+        const refreshToken = await generateRefreshToken(user._id, getIpAddress(req));
         
         res.status(200).json({ 
             success: true,
             message: 'Login successful',
             data: {
-                token,
+                accessToken,
+                refreshToken,
                 user: {
                     id: user._id,
                     username: user.username,
                     email: user.email,
+                    role: user.role,
                     isVerified: user.isVerified,
                     createdAt: user.createdAt,
                     updatedAt: user.updatedAt
@@ -336,6 +368,209 @@ exports.resendVerification = async (req, res, next) => {
         res.status(200).json({
             success: true,
             message: 'Verification email sent. Please check your inbox.',
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Refresh access token
+exports.refreshToken = async (req, res, next) => {
+    try {
+        const { refreshToken } = req.body;
+        
+        if (!refreshToken) {
+            throw new ValidationError('Refresh token is required');
+        }
+        
+        // Find the refresh token in database
+        const tokenDoc = await RefreshToken.findOne({ token: refreshToken }).populate('userId');
+        
+        if (!tokenDoc) {
+            throw new AuthenticationError('Invalid refresh token');
+        }
+        
+        // Check if token is revoked
+        if (tokenDoc.revokedAt) {
+            throw new AuthenticationError('Refresh token has been revoked');
+        }
+        
+        // Check if token is expired
+        if (tokenDoc.isExpired) {
+            throw new AuthenticationError('Refresh token has expired');
+        }
+        
+        const user = tokenDoc.userId;
+        
+        if (!user) {
+            throw new NotFoundError('User not found');
+        }
+        
+        // Generate new access token
+        const newAccessToken = generateAccessToken(user);
+        
+        // Rotate refresh token for security (optional but recommended)
+        const ipAddress = getIpAddress(req);
+        const newRefreshToken = await generateRefreshToken(user._id, ipAddress);
+        
+        // Revoke old refresh token
+        tokenDoc.revoke(ipAddress, newRefreshToken);
+        await tokenDoc.save();
+        
+        res.status(200).json({
+            success: true,
+            message: 'Token refreshed successfully',
+            data: {
+                accessToken: newAccessToken,
+                refreshToken: newRefreshToken,
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Logout - revoke refresh token
+exports.logout = async (req, res, next) => {
+    try {
+        const { refreshToken } = req.body;
+        
+        if (!refreshToken) {
+            throw new ValidationError('Refresh token is required');
+        }
+        
+        // Find and revoke the refresh token
+        const tokenDoc = await RefreshToken.findOne({ token: refreshToken });
+        
+        if (!tokenDoc) {
+            throw new NotFoundError('Refresh token not found');
+        }
+        
+        if (tokenDoc.revokedAt) {
+            return res.status(200).json({
+                success: true,
+                message: 'Already logged out',
+            });
+        }
+        
+        // Revoke the token
+        tokenDoc.revoke(getIpAddress(req));
+        await tokenDoc.save();
+        
+        res.status(200).json({
+            success: true,
+            message: 'Logged out successfully',
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Revoke all refresh tokens for a user (logout from all devices)
+exports.revokeAllTokens = async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const ipAddress = getIpAddress(req);
+        
+        // Find all active tokens for the user
+        const tokens = await RefreshToken.find({
+            userId,
+            revokedAt: null,
+            expiresAt: { $gt: Date.now() },
+        });
+        
+        // Revoke all tokens
+        await Promise.all(tokens.map(async (token) => {
+            token.revoke(ipAddress);
+            await token.save();
+        }));
+        
+        res.status(200).json({
+            success: true,
+            message: `Revoked ${tokens.length} refresh token(s)`,
+            data: {
+                revokedCount: tokens.length,
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Admin: Update user role
+exports.updateUserRole = async (req, res, next) => {
+    try {
+        const userId = req.params.id;
+        const { role } = req.body;
+        
+        // Validate role
+        const validRoles = ['user', 'admin', 'moderator'];
+        if (!role || !validRoles.includes(role)) {
+            throw new ValidationError(`Role must be one of: ${validRoles.join(', ')}`);
+        }
+        
+        // Find user
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new NotFoundError('User not found');
+        }
+        
+        // Prevent self-demotion from admin
+        if (req.user.id === userId && req.user.role === 'admin' && role !== 'admin') {
+            throw new ValidationError('Admins cannot change their own role');
+        }
+        
+        const oldRole = user.role;
+        user.role = role;
+        await user.save();
+        
+        res.status(200).json({
+            success: true,
+            message: `User role updated from ${oldRole} to ${role}`,
+            data: {
+                userId: user._id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Admin: Get all users with full details
+exports.getAllUsersAdmin = async (req, res, next) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = Math.min(parseInt(req.query.limit) || 10, 100);
+        const skip = (page - 1) * limit;
+        
+        // Filter by role if provided
+        const filter = {};
+        if (req.query.role) {
+            filter.role = req.query.role;
+        }
+        
+        const users = await User.find(filter)
+            .select('-password -verificationToken')
+            .limit(limit)
+            .skip(skip)
+            .sort({ createdAt: -1 });
+        
+        const total = await User.countDocuments(filter);
+        
+        res.status(200).json({
+            success: true,
+            data: {
+                users,
+                pagination: {
+                    currentPage: page,
+                    totalPages: Math.ceil(total / limit),
+                    totalUsers: total,
+                    limit,
+                }
+            }
         });
     } catch (error) {
         next(error);
