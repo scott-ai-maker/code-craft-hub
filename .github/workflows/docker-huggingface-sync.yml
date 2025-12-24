@@ -34,6 +34,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate Docker Hub secrets
+        if: github.event_name != 'pull_request'
+        run: |
+          if [ -z "${{ secrets.DOCKER_USERNAME }}" ] || [ -z "${{ secrets.DOCKER_PASSWORD }}" ]; then
+            echo "DOCKER_USERNAME/DOCKER_PASSWORD are required for pushes. Set them in repository secrets." >&2
+            exit 1
+          fi
+          if ! echo "${{ secrets.DOCKER_USERNAME }}" | grep -Eq '^[a-z0-9._-]+$'; then
+            echo "DOCKER_USERNAME must be lowercase and use only [a-z0-9._-]." >&2
+            exit 1
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
