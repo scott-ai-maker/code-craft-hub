@@ -59,7 +59,7 @@ jobs:
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && secrets.DOCKER_USERNAME != ''
         with:
           images: |
             ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}
@@ -74,9 +74,9 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ github.event_name != 'pull_request' && steps.meta.outputs.tags || '' }}
-          labels: ${{ github.event_name != 'pull_request' && steps.meta.outputs.labels || '' }}
+          push: ${{ github.event_name != 'pull_request' && secrets.DOCKER_USERNAME != '' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
