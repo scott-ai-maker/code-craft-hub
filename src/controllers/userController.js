@@ -212,14 +212,15 @@ exports.loginUser = async (req, res, next) => {
         
         // Generate tokens
         const accessToken = generateAccessToken(user);
-        const refreshTokenDoc = await generateRefreshToken(user);
+        const ipAddress = getIpAddress(req);
+        const refreshToken = await generateRefreshToken(user._id, ipAddress);
         
         res.status(200).json({
             success: true,
             message: 'Login successful',
             data: {
                 accessToken,
-                refreshToken: refreshTokenDoc.token,
+                    refreshToken,
                 user: {
                     id: user._id,
                     username: user.username,
