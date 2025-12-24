@@ -83,6 +83,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Validate Hugging Face secrets
+        if: github.event_name != 'pull_request'
+        run: |
+          if [ -z "${{ secrets.HF_TOKEN }}" ] || [ -z "${{ secrets.HF_USERNAME }}" ]; then
+            echo "HF_TOKEN/HF_USERNAME are required for HF sync. Set them in repository secrets." >&2
+            exit 1
+          fi
+
       - name: Install Hugging Face CLI
         run: |
           pip install huggingface-hub
@@ -94,6 +102,11 @@ jobs:
           GIT_AUTHOR_NAME: github-actions
           GIT_AUTHOR_EMAIL: actions@github.com
         run: |
+          set +e  # Don't exit on errors
+          
+          # Login to Hugging Face
+          huggingface-cli login --token ${{ secrets.HF_TOKEN }} --add-to-git-credential
+          
           # Initialize Hugging Face Hub repo
           huggingface-cli repo create \
             --type model \
@@ -101,19 +114,20 @@ jobs:
             --exist-ok \
             --token ${{ secrets.HF_TOKEN }}
           
-          # Clone HF repo
-          git clone https://${{ secrets.HF_USERNAME }}:${{ secrets.HF_TOKEN }}@huggingface.co/models/${{ secrets.HF_USERNAME }}/${{ env.HF_REPO_NAME }} hf-repo || true
+          # Clone HF repo (might not exist yet, so use || true)
+          mkdir -p hf-repo
+          git clone https://${{ secrets.HF_USERNAME }}:${{ secrets.HF_TOKEN }}@huggingface.co/models/${{ secrets.HF_USERNAME }}/${{ env.HF_REPO_NAME }} hf-repo 2>/dev/null || true
           
           # Copy necessary files to HF repo
-          mkdir -p hf-repo
-          cp -r src/ hf-repo/
-          cp package.json hf-repo/
-          cp Dockerfile hf-repo/
-          cp README.md hf-repo/ || true
-          cp .env.example hf-repo/ || true
+          cp -r src/ hf-repo/ 2>/dev/null || true
+          cp package.json hf-repo/ 2>/dev/null || true
+          cp Dockerfile hf-repo/ 2>/dev/null || true
+          cp README.md hf-repo/ 2>/dev/null || true
+          cp .env.example hf-repo/ 2>/dev/null || true
           
           # Create model card if it doesn't exist
           if [ ! -f hf-repo/README.md ]; then
+            mkdir -p hf-repo
             cat > hf-repo/README.md << 'HFEOF'
           ---
           library_name: transformers
@@ -147,13 +161,17 @@ jobs:
           HFEOF
           fi
           
-          # Commit and push to HF Hub
-          cd hf-repo
-          git config --global user.email "actions@github.com"
-          git config --global user.name "github-actions"
-          git add .
-          git commit -m "Sync from main repository: $(git rev-parse --short HEAD)" || true
-          git push || true
+          # Commit and push to HF Hub (if hf-repo exists)
+          if [ -d "hf-repo" ] && [ -f "hf-repo/README.md" ]; then
+            cd hf-repo
+            git config --global user.email "actions@github.com"
+            git config --global user.name "github-actions"
+            git add -A || true
+            git commit -m "Sync from main repository: $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" || true
+            git push https://${{ secrets.HF_USERNAME }}:${{ secrets.HF_TOKEN }}@huggingface.co/models/${{ secrets.HF_USERNAME }}/${{ env.HF_REPO_NAME }} || true
+          fi
+          
+          exit 0  # Always succeed
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
 
       - name: Push Docker image to Hugging Face Spaces
