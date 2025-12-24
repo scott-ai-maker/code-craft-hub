@@ -24,10 +24,21 @@ const mongoose = require('mongoose');
  */
 const connectDB = async () => {
     try {
-        await mongoose.connect(process.env.MONGODB_URI);
-        console.log('MongoDB connected successfully.');
+        const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
+        if (!uri) {
+            throw new Error('MongoDB connection string is not defined');
+        }
+
+        await mongoose.connect(uri);
+        if (process.env.NODE_ENV !== 'test') {
+            console.log('MongoDB connected successfully.');
+        }
     } catch (error) {
         console.error('MongoDB connection failed:', error);
+        if (process.env.NODE_ENV === 'test') {
+            // Let the test runner handle the failure instead of exiting
+            throw error;
+        }
         process.exit(1);
     }
 };
